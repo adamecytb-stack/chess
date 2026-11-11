@@ -1,4 +1,5 @@
 // Interactive board: animated pieces, tap or drag to move, highlights, arrows, badges.
+import { clsIcon } from './icons.js';
 const FILES = 'abcdefgh';
 export const pieceSvg = (color, type) => `<svg viewBox="3.5 3.5 33 33" aria-hidden="true"><use href="#${color}${type}"/></svg>`;
 
@@ -10,7 +11,7 @@ export function createBoard(root, opts) {
   const [sqLayer, arLayer, pcLayer, topLayer] = root.children;
   let flip = false, pieces = [], sel = null, targets = [];
   let marks = { last: [], check: null, hint: [], arrows: [], badge: null, wrong: null };
-  let drag = null;
+  let drag = null, badgeKey = '';
 
   const xy = sq => {
     const f = FILES.indexOf(sq[0]), r = +sq[1];
@@ -40,21 +41,31 @@ export function createBoard(root, opts) {
     // arrows
     arLayer.innerHTML = marks.arrows.map(([a, b, cls]) => {
       const [x1, y1] = xy(a).map(v => v + 0.5), [x2, y2] = xy(b).map(v => v + 0.5);
-      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
-      const hx = x2 - ux * 0.42, hy = y2 - uy * 0.42, sx = x1 + ux * 0.3, sy = y1 + uy * 0.3, w = 0.09, hw = 0.24;
-      const pts = [[sx - uy * w, sy + ux * w], [hx - uy * w, hy + ux * w], [hx - uy * hw, hy + ux * hw], [x2, y2],
-        [hx + uy * hw, hy - ux * hw], [hx + uy * w, hy - ux * w], [sx + uy * w, sy - ux * w]];
-      return `<polygon class="ar ${cls || ''}" points="${pts.map(p => p.map(v => v.toFixed(3)).join(',')).join(' ')}"/>`;
+      const adx = Math.abs(x2 - x1), ady = Math.abs(y2 - y1);
+      // knight moves get an L-shaped arrow
+      const corner = (adx === 1 && ady === 2) ? [x1, y2] : (adx === 2 && ady === 1) ? [x2, y1] : null;
+      const from = corner || [x1, y1];
+      const dx = x2 - from[0], dy = y2 - from[1], len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+      const hb = [x2 - ux * 0.36, y2 - uy * 0.36], hw = 0.22;
+      const head = [[x2 - ux * 0.04, y2 - uy * 0.04], [hb[0] - uy * hw, hb[1] + ux * hw], [hb[0] + uy * hw, hb[1] - ux * hw]];
+      const sdx = (corner ? corner[0] : x2) - x1, sdy = (corner ? corner[1] : y2) - y1, sl = Math.hypot(sdx, sdy) || 1;
+      const start = [x1 + sdx / sl * 0.28, y1 + sdy / sl * 0.28];
+      const d = 'M' + [start, ...(corner ? [corner] : []), hb].map(p => p.map(v => v.toFixed(3)).join(' ')).join(' L');
+      return `<g class="ar ${cls || ''}"><path d="${d}" fill="none" stroke-width="0.17" stroke-linejoin="round"/><polygon points="${head.map(p => p.map(v => v.toFixed(3)).join(',')).join(' ')}"/></g>`;
     }).join('');
     // badge
-    const old = topLayer.querySelector('.badge'); if (old) old.remove();
-    if (marks.badge) {
-      const [x, y] = xy(marks.badge.sq);
-      const b = document.createElement('div');
-      b.className = 'badge c-' + marks.badge.cls + (x === 7 || y === 0 ? ' edge' : '');
-      b.textContent = marks.badge.text;
-      b.style.left = (x + 1) * 12.5 + '%'; b.style.top = y * 12.5 + '%';
-      topLayer.appendChild(b);
+    const key = marks.badge ? marks.badge.sq + marks.badge.cls + flip : '';
+    if (key !== badgeKey) {
+      badgeKey = key;
+      const old = topLayer.querySelector('.badge'); if (old) old.remove();
+      if (marks.badge) {
+        const [x, y] = xy(marks.badge.sq);
+        const b = document.createElement('div');
+        b.className = 'badge' + (x === 7 || y === 0 ? ' edge' : '');
+        b.innerHTML = clsIcon(marks.badge.cls, '100%');
+        b.style.left = (x + 1) * 12.5 + '%'; b.style.top = y * 12.5 + '%';
+        topLayer.appendChild(b);
+      }
     }
   }
 
