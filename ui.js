@@ -122,5 +122,5 @@ const SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="
 export const muteBtn = () => `<button class="spk ${voice.on ? '' : 'off'}" data-global="mute" aria-label="${voice.on ? 'Mute Olly' : 'Unmute Olly'}">${voice.on ? SPK_ON : SPK_OFF}</button>`;
 export function toggleMute(btn) {
   setVoiceOn(!voice.on);
-  document.querySelectorAll('.spk').forEach(b => { b.outerHTML = muteBtn(); });
+  document.querySelectorAll('[data-global="mute"]').forEach(b => { b.outerHTML = muteBtn(); });
 }

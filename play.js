@@ -42,6 +42,18 @@ function saveCurrent() {
 }
 const saveSetup = () => { try { localStorage.setItem('ks.setup', JSON.stringify(setup)); } catch (e) { /* ignore */ } };
 export const getSetup = () => setup;
+export function startGame() {
+  if (!G && store.current) G = { ...store.current, over: false };
+  if (G && !G.over && G.sans.length > 2 && !confirm('Abandon the game in progress?')) return;
+  saveSetup();
+  const otb = setup.level === 'otb';
+  const me = otb ? 'w' : setup.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : setup.color;
+  G = { id: Date.now(), levelId: setup.level, me, tips: prefs.tips, sans: [], infos: [], over: false, hints: 0, otb, turnBoard: otb && setup.turnBoard, startFen: setup.start === 'custom' && setup.fen ? setup.fen : null };
+  saveCurrent();
+  try { engine().newGame(); } catch (e) { /* ignore */ }
+  play('start');
+  go('#/game');
+}
 export function useCustom(fen) { setup.start = 'custom'; setup.fen = fen; saveSetup(); }
 // colour and move number of half-move i, for games that may start from any position
 function plyOf(i) {
@@ -59,6 +71,10 @@ export function viewPlaySetup() {
       <div class="home-top"><span class="brand">Play</span></div>
       <div class="home-coach">${coachBox('happy', 'Play a bot, or move both sides yourself. I’ll watch every move – and after the game we go through it together.')}</div>
       ${G && !G.over ? `<button class="btn col" data-go="#/game" style="margin-bottom:16px"><span>Continue your game</span><small>${G.otb ? 'Over the board' : 'vs ' + esc(levelOf(G.levelId).name)}, move ${Math.ceil((G.sans.length + 1) / 2)}</small></button>` : ''}
+      <div class="startfrom">
+        <div class="seg">${[['normal', 'Normal start'], ['custom', '♟ Set up a position']].map(([k, t]) => `<button class="${setup.start === k ? 'on' : ''}" data-act="startfrom" data-id="${k}">${t}</button>`).join('')}</div>
+        ${setup.start === 'custom' && setup.fen ? `<button class="custompos" data-go="#/setup">${miniBoard(setup.fen)}<div><b>Custom position · ${setup.fen.split(' ')[1] === 'w' ? 'White' : 'Black'} to move</b><span>Tap to edit it</span></div><em>›</em></button>` : ''}
+      </div>
       <div class="levels"><button class="level ${setup.level === 'otb' ? 'on' : ''}" data-act="level" data-id="otb">
           <span class="ava big">${otbFace()}</span><div><b>${OTB.name}</b><span>${OTB.blurb}. Olly grades every move for both sides.</span></div><em>2P</em></button></div>
       <p class="field">Bots</p>
@@ -70,9 +86,6 @@ export function viewPlaySetup() {
       ${setup.level === 'otb' ? `<p class="field">Board</p>
       <div class="seg">${[[false, 'White at the bottom'], [true, 'Turn after each move']].map(([k, t]) => `<button class="${setup.turnBoard === k ? 'on' : ''}" data-act="turnboard" data-id="${k}">${t}</button>`).join('')}</div>` : `<p class="field">You play</p>
       <div class="seg">${[['w', 'White'], ['r', 'Random'], ['b', 'Black']].map(([k, t]) => `<button class="${setup.color === k ? 'on' : ''}" data-act="color" data-id="${k}">${t}</button>`).join('')}</div>`}
-      <p class="field">Start from</p>
-      <div class="seg">${[['normal', 'Normal start'], ['custom', 'Custom position']].map(([k, t]) => `<button class="${setup.start === k ? 'on' : ''}" data-act="startfrom" data-id="${k}">${t}</button>`).join('')}</div>
-      ${setup.start === 'custom' && setup.fen ? `<button class="custompos" data-go="#/setup">${miniBoard(setup.fen)}<div><b>${setup.fen.split(' ')[1] === 'w' ? 'White' : 'Black'} to move</b><span>Tap to edit the position</span></div><em>›</em></button>` : ''}
       <p class="field">Coach</p>
       <button class="switch ${prefs.tips ? 'on' : ''}" data-act="tips"><div><b>Comment on my moves</b><span>Grades every move, warns you about threats, and lets you take back mistakes.</span></div><i></i></button>
       <div style="height:18px"></div>
@@ -83,17 +96,7 @@ export function viewPlaySetup() {
     ACT.turnboard = el => { setup.turnBoard = el.dataset.id === 'true'; draw(); };
     ACT.startfrom = el => { setup.start = el.dataset.id; saveSetup(); if (setup.start === 'custom' && !setup.fen) go('#/setup'); else draw(); };
     ACT.tips = () => { prefs.tips = !prefs.tips; savePrefs(); draw(); };
-    ACT.start = () => {
-      if (G && !G.over && G.sans.length > 2 && !confirm('Abandon the game in progress?')) return;
-      try { localStorage.setItem('ks.setup', JSON.stringify(setup)); } catch (e) { /* ignore */ }
-      const otb = setup.level === 'otb';
-      const me = otb ? 'w' : setup.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : setup.color;
-      G = { id: Date.now(), levelId: setup.level, me, tips: prefs.tips, sans: [], infos: [], over: false, hints: 0, otb, turnBoard: otb && setup.turnBoard, startFen: setup.start === 'custom' && setup.fen ? setup.fen : null };
-      saveCurrent();
-      try { engine().newGame(); } catch (e) { /* ignore */ }
-      play('start');
-      go('#/game');
-    };
+    ACT.start = startGame;
   };
   draw();
 }
@@ -125,10 +128,11 @@ export function viewGame() {
   R.board.setPosition(game.board(), { animate: false, flipped: bottom(game) === 'b' });
   $('#above').innerHTML = `<div class="strip" id="opp"></div>`;
   $('.screen .top').insertAdjacentHTML('beforeend', `<button class="spk" data-act="gset" aria-label="Board options"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="17" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>`);
-  $('.screen').insertAdjacentHTML('beforeend', `<div class="gset" id="gset" hidden>${OPTS.map(([k, t, d]) => `<button class="switch" data-act="gopt" data-id="${k}"><div><b>${t}</b><span>${d}</span></div><i></i></button>`).join('')}</div>`);
+  $('.screen').insertAdjacentHTML('beforeend', `<div class="gset" id="gset" hidden>${OPTS.map(([k, t, d]) => `<button class="switch" data-act="gopt" data-id="${k}"><div><b>${t}</b><span>${d}</span></div><i></i></button>`).join('')}<button class="btn sec" data-act="setuppos">♟ Set up a position</button></div>`);
   $('.board-wrap').insertAdjacentHTML('afterbegin', `<div class="vbar" id="gvbar"><i id="gevi"></i><span id="gevt"></span></div>`);
   ACT.gset = () => { const p = $('#gset'); p.hidden = !p.hidden; drawGame(); };
   ACT.gopt = el => { prefs[el.dataset.id] = !prefs[el.dataset.id]; savePrefs(); drawGame(); };
+  ACT.setuppos = () => { setup.level = G.levelId; if (!G.otb) setup.color = G.me; go('#/setup'); };
   $('#below').innerHTML = `<div class="strip" id="mine"></div><div class="moves" id="gmoves"></div>${coachBox('happy', '', 'gc')}`;
   ACT.hint = gameHint; ACT.undo = gameUndo;
   ACT.resign = () => { if (!G.over && confirm(G.otb ? `Resign for ${SIDE(R.game.turn())}?` : 'Resign this game?')) endGame('resign'); };

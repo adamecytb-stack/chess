@@ -3,7 +3,7 @@ import { Chess } from './chess.js';
 import { pieceSvg } from './board.js';
 import { play } from './sound.js';
 import { $, esc, ACT, screen, go } from './ui.js';
-import { getSetup, useCustom } from './play.js';
+import { getSetup, useCustom, startGame, LEVELS } from './play.js';
 
 const FILES = 'abcdefgh';
 export const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -82,7 +82,7 @@ export function viewEditor() {
       <div class="ed-row"><button class="btn sec sm" data-act="startpos">Start position</button><button class="btn sec sm" data-act="clear">Clear</button><button class="btn sec sm" data-act="flipb">Flip</button></div>
       <div class="ed-fen"><input id="fen" spellcheck="false" autocomplete="off" aria-label="FEN"><button class="btn sec sm" data-act="loadfen">Load FEN</button></div>
       <p class="ed-msg" id="emsg"></p>
-      <button class="btn" data-act="usepos" id="usepos">Use this position</button>
+      <button class="btn col" data-act="usepos" id="usepos"><span>Play this position</span><small id="usemode"></small></button>
     </div>`, null);
   $('#view').classList.add('pad');
   ACT.sq = el => {
@@ -110,7 +110,7 @@ export function viewEditor() {
     const f = fenOf(), err = checkFen(f);
     if (err) { msg(err); play('illegal'); return; }
     useCustom(f);
-    go('#/play');
+    startGame();
   };
   draw();
 }
@@ -130,4 +130,6 @@ function draw() {
   const inp = $('#fen'); if (inp && document.activeElement !== inp) inp.value = f;
   msg(err);
   $('#usepos').disabled = !!err;
+  const s = getSetup(), um = $('#usemode');
+  if (um) um.textContent = s.level === 'otb' ? 'Over the board – you move both sides' : `Against ${(LEVELS.find(l => l.id === s.level) || { name: 'the bot' }).name}`;
 }
