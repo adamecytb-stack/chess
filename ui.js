@@ -16,7 +16,7 @@ export function persist() {
 }
 export function resetStore() { store = { stars: {}, games: [], current: null }; persist(); }
 
-export const prefs = { theme: 'green', talk: 'all', tips: true };
+export const prefs = { theme: 'green', talk: 'all', tips: true, threats: false, bestArrow: false, evalBar: false };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem('ks.prefs') || '{}')); } catch (e) { /* ignore */ }
 export function savePrefs() { try { localStorage.setItem('ks.prefs', JSON.stringify(prefs)); } catch (e) { /* ignore */ } applyTheme(); }
 export function applyTheme() { document.documentElement.dataset.board = prefs.theme; }

@@ -28,7 +28,7 @@ export function viewReviewList() {
     <div class="home-coach">${coachBox('happy', games.length ? 'Pick a game. I’ll grade every move and explain the ones that matter.' : 'No games yet. Play one – or paste a game from another site below – and I’ll go through it with you.')}</div>
     <div class="games">${games.map(r => { const [c, t] = resultFor(r); return `
       <button class="game" data-go="#/review/${r.id}"><span class="res ${c}">${t}</span>
-        <div><b>${r.otb ? 'Over the board' : `vs ${esc(r.opp)}${r.elo ? ` (${r.elo})` : ''}`}</b><span>${r.date}, ${Math.ceil(r.sans.length / 2)} moves${r.otb ? ', both sides' : `, you were ${r.me === 'w' ? 'White' : 'Black'}`}${r.acc && !r.otb ? `, accuracy ${r.acc.toFixed(0)}` : ''}</span></div><em>›</em></button>`; }).join('')}</div>
+        <div><b>${r.otb ? 'Over the board' : `vs ${esc(r.opp)}${r.elo ? ` (${r.elo})` : ''}`}</b><span>${r.date}, ${Math.ceil(r.sans.length / 2)} moves${r.otb ? ', both sides' : `, you were ${r.me === 'w' ? 'White' : 'Black'}`}${r.est && r.est[r.me] && !r.otb ? `, played like ~${r.est[r.me]}` : r.acc && !r.otb ? `, accuracy ${r.acc.toFixed(0)}` : ''}</span></div><em>›</em></button>`; }).join('')}</div>
     ${games.length ? '' : `<button class="btn" data-go="#/play" style="margin-bottom:8px">Play a game</button>`}
     <p class="field">Review a game from another site</p>
     <textarea id="pgn" placeholder="Paste the PGN here (on most chess sites: Share, then PGN)"></textarea>
@@ -97,10 +97,14 @@ function viewSummary() {
   const { rec, sum, rev } = V, me = sum.stats[rec.me], opp = sum.stats[rec.me === 'w' ? 'b' : 'w'];
   const [rc] = resultFor(rec);
   const moments = rev.moves.map((m, i) => ({ m, i })).filter(x => (rec.otb || x.m.mover === rec.me) && KEYS.includes(x.m.cls));
+  const foe = rec.me === 'w' ? 'b' : 'w';
+  const eMe = C.estimateElo(rev.moves.filter(m => m.mover === rec.me)), eOpp = C.estimateElo(rev.moves.filter(m => m.mover === foe));
+  rec.est = { [rec.me]: eMe && eMe.elo, [foe]: eOpp && eOpp.elo }; persist();
   screen(`<div class="top"><button class="back" data-go="#/review" aria-label="Back">‹</button><span class="ttl">Game review</span><span class="right">${rec.otb ? 'White vs Black' : `vs ${esc(rec.opp)}`}</span></div>
     <div class="page">
       ${coachBox(rc === 'win' ? 'wow' : rc === 'loss' ? 'think' : 'happy', sum.text.map(t => `<p>${t}</p>`).join(''), 'sc')}
-      <div class="acc"><div class="me"><div class="ring" style="--p:${me.acc.toFixed(1)}"><strong>${me.acc.toFixed(1)}</strong></div><span>${rec.otb ? 'White' : 'Your accuracy'}</span></div><div><div class="ring" style="--p:${opp.acc.toFixed(1)};--rc:#9aa3b2"><strong>${opp.acc.toFixed(1)}</strong></div><span>${esc(rec.opp)}</span></div></div>
+      <div class="acc"><div class="me"><div class="ring" style="--p:${me.acc.toFixed(1)}"><strong>${me.acc.toFixed(1)}</strong></div><span>${rec.otb ? 'White' : 'Your accuracy'}</span><em class="est">Played like <b>${C.eloText(eMe)}</b></em></div><div><div class="ring" style="--p:${opp.acc.toFixed(1)};--rc:#9aa3b2"><strong>${opp.acc.toFixed(1)}</strong></div><span>${esc(rec.opp)}</span><em class="est">Played like <b>${C.eloText(eOpp)}</b></em></div></div>
+      ${eMe && eMe.rough ? '<p class="muted small note">Short game – the rating guess is rough.</p>' : ''}
       <p class="muted small">Your winning chances during the game. Tap to jump there.</p>
       ${graphSvg()}
       <table class="counts"><tr><td>You</td><td></td><td>${esc(rec.opp)}</td></tr>

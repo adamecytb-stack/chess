@@ -3,6 +3,7 @@ import { engine, flavor, setFlavor, FLAVORS } from './engine.js';
 import { audio, setSound, play } from './sound.js';
 import { voice, setVoiceOn, say } from './voice.js';
 import { S } from './speech.js';
+import { OPTS } from './play.js';
 import { prefs, savePrefs, resetStore, $, esc, ACT, screen, coachBox } from './ui.js';
 
 const THEMES = [['green', 'Green', '#ebecd0', '#739552'], ['wood', 'Wood', '#f0d9b5', '#b58863'], ['ocean', 'Ocean', '#dee3e6', '#8ca2ad'], ['night', 'Night', '#a7a7b3', '#5b5c6e']];
@@ -16,6 +17,8 @@ export function viewSettings() {
       <button class="switch ${voice.on ? 'on' : ''}" data-act="voice"><div><b>Olly talks</b><span>A natural American voice. Recorded in, so it works offline and sounds the same on every device.</span></div><i></i></button>
       <div class="seg" style="margin-top:10px">${[['all', 'Every move'], ['key', 'Big moments only']].map(([k, t]) => `<button class="${prefs.talk === k ? 'on' : ''}" data-act="talk" data-id="${k}">${t}</button>`).join('')}</div>
       <button class="btn sec" data-act="testvoice" style="margin-top:10px">▶ Hear Olly</button>
+      <p class="field">During games</p>
+      <div class="stack" style="gap:8px">${OPTS.map(([k, t, d]) => `<button class="switch ${prefs[k] ? 'on' : ''}" data-act="gopt" data-id="${k}"><div><b>${t}</b><span>${d}</span></div><i></i></button>`).join('')}</div>
       <p class="field">Sound effects</p>
       <button class="switch ${audio.on ? 'on' : ''}" data-act="sound"><div><b>Piece sounds</b><span>Moves, captures, checks, castling.</span></div><i></i></button>
       <p class="field">Board</p>
@@ -29,6 +32,7 @@ export function viewSettings() {
       <p class="foot"><a href="https://github.com/adamecytb-stack/chess#credits">Credits and licences</a></p>`, 'settings');
     ACT.voice = () => { setVoiceOn(!voice.on); draw(); if (voice.on) say(S.test); };
     ACT.talk = el => { prefs.talk = el.dataset.id; savePrefs(); draw(); };
+    ACT.gopt = el => { prefs[el.dataset.id] = !prefs[el.dataset.id]; savePrefs(); draw(); };
     ACT.testvoice = () => say([S.test, S.lead.best[0], S.fact.fork], { force: true });
     ACT.sound = () => { setSound(!audio.on); draw(); play('move'); };
     ACT.theme = el => { prefs.theme = el.dataset.id; savePrefs(); draw(); };

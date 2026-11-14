@@ -689,6 +689,40 @@ export async function reviewGame(eng, sans, startFen, known, onProgress, cancell
   return { fens, moves: out, opening: op.name };
 }
 
+// Red "threat" arrows: what the side that just moved now attacks (checks, and pieces it could win next move).
+export function threatArrows(fen) {
+  const g = new Chess(fen), victim = g.turn(), attacker = other(victim), out = [];
+  if (g.inCheck()) {
+    const k = pieces(g, victim).find(p => p.type === 'k');
+    for (const sq of g.attackers(k.square, attacker)) out.push([sq, k.square]);
+  }
+  const f = flip(g);
+  if (f) {
+    const seen = new Set();
+    for (const t of winningCaptures(f)) {
+      if (seen.has(t.sq) || out.length >= 4) continue;
+      seen.add(t.sq); out.push([t.m.from, t.m.to]);
+    }
+  }
+  return out;
+}
+
+// Rough playing strength from move quality (accuracy of the non-book moves).
+const ELO_MAP = [[30, 150], [40, 250], [50, 450], [60, 700], [70, 1000], [75, 1200], [80, 1450], [85, 1750], [90, 2100], [94, 2450], [97, 2750], [99, 3000], [100, 3100]];
+export function estimateElo(moves) {
+  const ms = (moves || []).filter(m => m && m.cls && m.cls !== 'book' && m.legal !== 1 && m.acc != null);
+  if (ms.length < 5) return null;
+  const acc = accuracyOf(ms);
+  let elo = ELO_MAP[0][1];
+  for (let i = 1; i < ELO_MAP.length; i++) {
+    const [a0, e0] = ELO_MAP[i - 1], [a1, e1] = ELO_MAP[i];
+    if (acc <= a1) { elo = e0 + (Math.max(acc, a0) - a0) / (a1 - a0) * (e1 - e0); break; }
+    elo = e1;
+  }
+  return { elo: Math.round(elo / 50) * 50, acc, n: ms.length, rough: ms.length < 15 };
+}
+export const eloText = e => (e ? `~${e.elo}` : '–');
+
 export function accuracyOf(list) {
   const a = list.filter(m => m.cls !== 'book').map(m => m.acc);
   if (!a.length) return 100;
@@ -719,7 +753,7 @@ export function summarize(rev, me, result, oppName, otb = false) {
     const P = persp(true, 'you', otb ? (worst.mover === 'w' ? 'Black' : 'White') : oppName || 'your opponent');
     text.push(`The key moment was move ${worst.no}${otb ? ` (${worst.mover === 'w' ? 'White' : 'Black'})` : ''}, <b>${worst.san}</b>: ${describe(worst, P, { prevInfo: rev.moves[worst.i - 1] })}`);
   } else text.push(otb ? 'No big mistakes on either side – very clean.' : 'No big mistakes from you in this game – very clean.');
-  const great = mine.filter(m => m.cls === 'brilliant' || m.cls === 'great');
+  const great = mine.filter(m => m.cls === 'brilliant').concat(mine.filter(m => m.cls === 'great'));
   if (great.length) text.push(`Best moment: <b>${great[0].no}.${great[0].mover === 'b' ? '..' : ''}${great[0].san}</b> – ${CLASSES[great[0].cls].label.toLowerCase()}!`);
   const counts = {};
   for (const m of bad.concat(mine.filter(x => x.cls === 'inaccuracy'))) {

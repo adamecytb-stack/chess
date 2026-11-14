@@ -110,6 +110,11 @@ export function viewGame() {
   });
   R.board.setPosition(game.board(), { animate: false, flipped: bottom(game) === 'b' });
   $('#above').innerHTML = `<div class="strip" id="opp"></div>`;
+  $('.screen .top').insertAdjacentHTML('beforeend', `<button class="spk" data-act="gset" aria-label="Board options"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="17" r="2.4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>`);
+  $('.screen').insertAdjacentHTML('beforeend', `<div class="gset" id="gset" hidden>${OPTS.map(([k, t, d]) => `<button class="switch" data-act="gopt" data-id="${k}"><div><b>${t}</b><span>${d}</span></div><i></i></button>`).join('')}</div>`);
+  $('.board-wrap').insertAdjacentHTML('afterbegin', `<div class="vbar" id="gvbar"><i id="gevi"></i><span id="gevt"></span></div>`);
+  ACT.gset = () => { const p = $('#gset'); p.hidden = !p.hidden; drawGame(); };
+  ACT.gopt = el => { prefs[el.dataset.id] = !prefs[el.dataset.id]; savePrefs(); drawGame(); };
   $('#below').innerHTML = `<div class="strip" id="mine"></div><div class="moves" id="gmoves"></div>${coachBox('happy', '', 'gc')}`;
   ACT.hint = gameHint; ACT.undo = gameUndo;
   ACT.resign = () => { if (!G.over && confirm(G.otb ? `Resign for ${SIDE(R.game.turn())}?` : 'Resign this game?')) endGame('resign'); };
@@ -132,6 +137,15 @@ export function viewGame() {
   if (myTurn()) userTurn(); else botTurn(R.tok);
 }
 
+// estimated playing strength of both sides, from the moves graded so far
+function eloLine() {
+  const est = c => C.estimateElo(G.infos.filter((x, i) => x && (i % 2 === 0 ? 'w' : 'b') === c));
+  const w = est('w'), b = est('b');
+  if (!w && !b) return '<p class="oc-elo">Too short to estimate ratings.</p>';
+  const lvl = levelOf(G.levelId), name = c => G.otb ? SIDE(c) : c === G.me ? 'You' : lvl.name;
+  return `<p class="oc-elo">Played like: <b>${name('w')} ${C.eloText(w)}</b> · <b>${name('b')} ${C.eloText(b)}</b></p>`;
+}
+
 // which colour sits at the bottom of the board
 function bottom(g) { return G.otb ? (G.turnBoard ? g.turn() : 'w') : G.me; }
 
@@ -144,6 +158,13 @@ function otbNext() {
   }
   userTurn();
 }
+
+export const OPTS = [
+  ['threats', 'Threat arrows', 'Red arrows show what the last move attacks.'],
+  ['bestArrow', 'Best move arrow', 'A blue arrow shows Stockfish’s top move for the side to move.'],
+  ['evalBar', 'Evaluation bar', 'Shows who is better, next to the board.']
+];
+const scoreOfLine = l => ({ cp: C.cpOf(l), mate: l.mate ?? null });
 
 function setCoach(mood, html, speak, say) {
   R.say = { mood, html }; R.status = false;
@@ -162,7 +183,18 @@ const capRow = (types, color) => types.length ? `<span class="caps">${types.map(
 function drawGame() {
   if (!R || R.dead || !$('#board')) return;
   const g = R.game, lvl = levelOf(G.levelId);
-  R.board.setMarks({ last: R.last, check: kingInCheck(g), arrows: R.arrow ? [R.arrow] : [], hint: R.hintSq, badge: R.badge });
+  const arrows = [];
+  if (prefs.threats && g.history().length && !G.over) for (const [a, b] of C.threatArrows(g.fen())) arrows.push([a, b, 'threat']);
+  if (prefs.bestArrow && R.best && R.bestFen === g.fen() && myTurn() && !G.over && !R.pending) arrows.push([R.best.slice(0, 2), R.best.slice(2, 4), 'engine']);
+  if (R.arrow) arrows.push(R.arrow);
+  R.board.setMarks({ last: R.last, check: kingInCheck(g), arrows, hint: R.hintSq, badge: R.badge });
+  document.querySelectorAll('#gset [data-act=gopt]').forEach(b => b.classList.toggle('on', !!prefs[b.dataset.id]));
+  $('.screen').classList.toggle('with-bar', !!prefs.evalBar);
+  const vb = $('#gvbar');
+  if (vb) {
+    vb.hidden = !prefs.evalBar; vb.classList.toggle('flip', R.board.flipped);
+    if (R.ev) { $('#gevi').style.height = C.winFor('w', R.ev.cp) + '%'; const t = $('#gevt'); t.textContent = C.evalText(R.ev).replace(/^[+−]/, ''); t.className = R.ev.cp >= 0 ? 'w' : 'b'; }
+  }
   const cap = captured(g);
   const low = G.otb ? (R.board.flipped ? 'b' : 'w') : G.me, high = low === 'w' ? 'b' : 'w';
   const capBy = c => (c === 'w' ? cap.byWhite : cap.byBlack), adv = c => cap.diff * (c === 'w' ? 1 : -1);
@@ -195,6 +227,11 @@ function userTurn() {
   const fen = R.game.fen();
   R.rootFen = fen;
   R.rootP = engine().analyse(fen, { depth: C.DEPTH, multipv: 2, tag: 'game' }).catch(() => null);
+  R.rootP.then(r => {
+    if (!R || R.dead || R.game.fen() !== fen || !r || !r.lines[0]) return;
+    R.best = r.best; R.bestFen = fen; R.ev = scoreOfLine(r.lines[0]);
+    if (prefs.bestArrow || prefs.evalBar) drawGame();
+  });
   drawGame();
 }
 
@@ -232,6 +269,7 @@ async function gameMove(from, to) {
   }
   if (!R || tok !== R.tok) return;
   G.infos[ply] = info; saveCurrent();
+  if (info && info.played) R.ev = info.played;
   if (info) {
     R.badge = { sq: m.to, cls: info.cls };
     if (info.cls === 'brilliant') play('brilliant'); else if (info.cls === 'great') play('correct');
@@ -377,6 +415,7 @@ function endGame(reason) {
   card.innerHTML = `<div class="oc-in"><button class="oc-x" data-act="closecard" aria-label="Close">×</button>
     <div class="oc-icon">${won ? '🏆' : result === '1/2-1/2' ? '🤝' : '♟'}</div><h2>${title}</h2><p>${sub}</p>
     <div class="oc-faces"><span class="ava big you">${pieceSvg(G.otb ? 'w' : G.me, 'k')}</span><b>${result.replace('1/2-1/2', '½-½')}</b><span class="ava big ${G.otb ? 'you' : ''}">${G.otb ? pieceSvg('b', 'k') : botFace(lvl)}</span></div>
+    ${eloLine()}
     <button class="btn" data-act="review">Game review</button>
     <div class="oc-row"><button class="btn sec" data-act="rematch">${G.otb ? 'New game' : 'Rematch'}</button><button class="btn sec" data-act="newgame">${G.otb ? 'Play a bot' : 'New bot'}</button></div></div>`;
   $('.board-wrap').appendChild(card);
