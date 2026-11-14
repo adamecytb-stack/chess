@@ -20,17 +20,23 @@ export const LEVELS = [
   { id: 'viktor', name: 'Viktor', elo: 2000, blurb: 'Tournament player', color: '#c9972a', depth: 12, multipv: 2, window: 15, random: 0 },
   { id: 'max', name: 'Maximus', elo: 2600, blurb: 'Shows no mercy', color: '#e5533d', depth: 17, multipv: 1, window: 0, random: 0 }
 ];
-const levelOf = id => LEVELS.find(l => l.id === id) || LEVELS[1];
+export const OTB = { id: 'otb', name: 'Over the board', blurb: 'Move both sides yourself – or play a real game with a friend', color: '#5b5852' };
+const levelOf = id => id === 'otb' ? OTB : (LEVELS.find(l => l.id === id) || LEVELS[1]);
+const otbFace = () => `<span class="otbface">${pieceSvg('w', 'k')}${pieceSvg('b', 'k')}</span>`;
+const faceOf = l => l.id === 'otb' ? otbFace() : botFace(l);
+const SIDE = c => (c === 'w' ? 'White' : 'Black');
+// whose pieces can be moved right now
+const myTurn = () => !!G && (G.otb || R.game.turn() === G.me);
 const KEY_CLS = ['brilliant', 'great', 'inaccuracy', 'mistake', 'miss', 'blunder'];
 const uciOf = m => m.from + m.to + (m.promotion || '');
 
 let G = null;   // saved game state
 let R = null;   // screen runtime state
-let setup = { level: 'mira', color: 'w' };
+let setup = { level: 'mira', color: 'w', turnBoard: false };
 try { Object.assign(setup, JSON.parse(localStorage.getItem('ks.setup') || '{}')); } catch (e) { /* ignore */ }
 
 function saveCurrent() {
-  store.current = G && !G.over ? { id: G.id, levelId: G.levelId, levelName: levelOf(G.levelId).name, me: G.me, tips: G.tips, sans: G.sans, infos: G.infos, hints: G.hints || 0 } : null;
+  store.current = G && !G.over ? { id: G.id, levelId: G.levelId, levelName: levelOf(G.levelId).name, me: G.me, tips: G.tips, sans: G.sans, infos: G.infos, hints: G.hints || 0, otb: !!G.otb, turnBoard: !!G.turnBoard } : null;
   persist();
 }
 export const hasGame = () => !!(G && !G.over) || !!store.current;
@@ -41,15 +47,19 @@ export function viewPlaySetup() {
   const draw = () => {
     screen(`
       <div class="home-top"><span class="brand">Play</span></div>
-      <div class="home-coach">${coachBox('happy', 'Pick an opponent. I’ll watch every move you make – and after the game we go through it together.')}</div>
-      ${G && !G.over ? `<button class="btn col" data-go="#/game" style="margin-bottom:16px"><span>Continue your game</span><small>vs ${esc(levelOf(G.levelId).name)}, move ${Math.ceil((G.sans.length + 1) / 2)}</small></button>` : ''}
+      <div class="home-coach">${coachBox('happy', 'Play a bot, or move both sides yourself. I’ll watch every move – and after the game we go through it together.')}</div>
+      ${G && !G.over ? `<button class="btn col" data-go="#/game" style="margin-bottom:16px"><span>Continue your game</span><small>${G.otb ? 'Over the board' : 'vs ' + esc(levelOf(G.levelId).name)}, move ${Math.ceil((G.sans.length + 1) / 2)}</small></button>` : ''}
+      <div class="levels"><button class="level ${setup.level === 'otb' ? 'on' : ''}" data-act="level" data-id="otb">
+          <span class="ava big">${otbFace()}</span><div><b>${OTB.name}</b><span>${OTB.blurb}. Olly grades every move for both sides.</span></div><em>2P</em></button></div>
+      <p class="field">Bots</p>
       <div class="levels">${LEVELS.map(l => `
         <button class="level ${setup.level === l.id ? 'on' : ''}" data-act="level" data-id="${l.id}">
           <span class="ava big">${botFace(l)}</span>
           <div><b>${l.name}</b><span>${l.blurb}</span></div><em>${l.elo}</em>
         </button>`).join('')}</div>
-      <p class="field">You play</p>
-      <div class="seg">${[['w', 'White'], ['r', 'Random'], ['b', 'Black']].map(([k, t]) => `<button class="${setup.color === k ? 'on' : ''}" data-act="color" data-id="${k}">${t}</button>`).join('')}</div>
+      ${setup.level === 'otb' ? `<p class="field">Board</p>
+      <div class="seg">${[[false, 'White at the bottom'], [true, 'Turn after each move']].map(([k, t]) => `<button class="${setup.turnBoard === k ? 'on' : ''}" data-act="turnboard" data-id="${k}">${t}</button>`).join('')}</div>` : `<p class="field">You play</p>
+      <div class="seg">${[['w', 'White'], ['r', 'Random'], ['b', 'Black']].map(([k, t]) => `<button class="${setup.color === k ? 'on' : ''}" data-act="color" data-id="${k}">${t}</button>`).join('')}</div>`}
       <p class="field">Coach</p>
       <button class="switch ${prefs.tips ? 'on' : ''}" data-act="tips"><div><b>Comment on my moves</b><span>Grades every move, warns you about threats, and lets you take back mistakes.</span></div><i></i></button>
       <div style="height:18px"></div>
@@ -57,12 +67,14 @@ export function viewPlaySetup() {
       <p class="foot">Ratings are rough guides.</p>`, 'play');
     ACT.level = el => { setup.level = el.dataset.id; draw(); };
     ACT.color = el => { setup.color = el.dataset.id; draw(); };
+    ACT.turnboard = el => { setup.turnBoard = el.dataset.id === 'true'; draw(); };
     ACT.tips = () => { prefs.tips = !prefs.tips; savePrefs(); draw(); };
     ACT.start = () => {
       if (G && !G.over && G.sans.length > 2 && !confirm('Abandon the game in progress?')) return;
       try { localStorage.setItem('ks.setup', JSON.stringify(setup)); } catch (e) { /* ignore */ }
-      const me = setup.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : setup.color;
-      G = { id: Date.now(), levelId: setup.level, me, tips: prefs.tips, sans: [], infos: [], over: false, hints: 0 };
+      const otb = setup.level === 'otb';
+      const me = otb ? 'w' : setup.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : setup.color;
+      G = { id: Date.now(), levelId: setup.level, me, tips: prefs.tips, sans: [], infos: [], over: false, hints: 0, otb, turnBoard: otb && setup.turnBoard };
       saveCurrent();
       try { engine().newGame(); } catch (e) { /* ignore */ }
       play('start');
@@ -77,46 +89,60 @@ export function viewGame() {
   if (!G && store.current) G = { ...store.current, over: false };
   if (!G) return go('#/play');
   const lvl = levelOf(G.levelId);
-  screen(boardShell({ back: '#/play', title: `You vs ${lvl.name}`, cls: 'scr-game' }), null);
+  screen(boardShell({ back: '#/play', title: G.otb ? 'Over the board' : `You vs ${lvl.name}`, cls: 'scr-game' }), null);
   const game = new Chess();
   for (const s of G.sans) game.move(s);
-  R = { game, tok: 0, busy: false, pending: false, hintLvl: 0, arrow: null, hintSq: [], badge: null, last: [], lastOpening: '', dead: false, P: C.persp(true, 'you', lvl.name) };
+  R = { game, tok: 0, busy: false, pending: false, hintLvl: 0, arrow: null, hintSq: [], badge: null, last: [], lastOpening: '', dead: false, P: C.persp(true, 'you', G.otb ? 'your opponent' : lvl.name) };
   const h = game.history({ verbose: true }), lm = h[h.length - 1];
   if (lm) {
     R.last = [lm.from, lm.to];
     const inf = G.infos[h.length - 1];
-    if (inf && lm.color === G.me) R.badge = { sq: lm.to, cls: inf.cls };
+    if (inf && (G.otb || lm.color === G.me)) R.badge = { sq: lm.to, cls: inf.cls };
   }
   onLeave(() => { if (R) { R.tok++; R.dead = true; } try { engine().cancel('game'); } catch (e) { /* ignore */ } });
   R.board = createBoard($('#board'), {
     movesFrom(sq) {
-      if (G.over || R.busy || R.pending || R.game.turn() !== G.me) return [];
+      if (G.over || R.busy || R.pending || !myTurn()) return [];
       const pc = R.game.get(sq);
-      return pc && pc.color === G.me ? [...new Set(R.game.moves({ square: sq, verbose: true }).map(m => m.to))] : [];
+      return pc && pc.color === R.game.turn() ? [...new Set(R.game.moves({ square: sq, verbose: true }).map(m => m.to))] : [];
     },
     onMove: gameMove
   });
-  R.board.setPosition(game.board(), { animate: false, flipped: G.me === 'b' });
+  R.board.setPosition(game.board(), { animate: false, flipped: bottom(game) === 'b' });
   $('#above').innerHTML = `<div class="strip" id="opp"></div>`;
   $('#below').innerHTML = `<div class="strip" id="mine"></div><div class="moves" id="gmoves"></div>${coachBox('happy', '', 'gc')}`;
   ACT.hint = gameHint; ACT.undo = gameUndo;
-  ACT.resign = () => { if (!G.over && confirm('Resign this game?')) endGame('resign'); };
+  ACT.resign = () => { if (!G.over && confirm(G.otb ? `Resign for ${SIDE(R.game.turn())}?` : 'Resign this game?')) endGame('resign'); };
   ACT.takeback = gameTakeback;
-  ACT.keep = () => { if (!R.pending) return; R.pending = false; setCoach('happy', R.keepText || 'Okay, let’s play on.', false); botTurn(R.tok); };
+  ACT.keep = () => { if (!R.pending) return; R.pending = false; setCoach('happy', R.keepText || 'Okay, let’s play on.', false); if (G.otb) otbNext(); else botTurn(R.tok); };
   ACT.closecard = () => { const c = $('#overcard'); if (c) c.remove(); };
   ACT.newgame = () => { G = null; go('#/play'); };
   ACT.rematch = () => {
     const prev = G;
-    G = { id: Date.now(), levelId: prev.levelId, me: prev.me === 'w' ? 'b' : 'w', tips: prev.tips, sans: [], infos: [], over: false, hints: 0 };
+    G = { id: Date.now(), levelId: prev.levelId, me: prev.otb ? 'w' : prev.me === 'w' ? 'b' : 'w', tips: prev.tips, sans: [], infos: [], over: false, hints: 0, otb: prev.otb, turnBoard: prev.turnBoard };
     saveCurrent(); play('start'); viewGame();
   };
   ACT.review = () => go('#/review/' + G.id);
-  if (!game.history().length) setCoach('happy', G.me === 'w' ? 'You have White – your move. Remember: centre, develop, castle.' : `You have Black. ${lvl.name} starts.`, true, [G.me === 'w' ? S.game.white : S.game.black]);
+  if (G.otb) setCoach('happy', game.history().length ? `${SIDE(game.turn())} to move.` : 'Move the pieces for both sides – I’ll grade every move. Playing on a real board? Copy each move here as you play it.', false);
+  else if (!game.history().length) setCoach('happy', G.me === 'w' ? 'You have White – your move. Remember: centre, develop, castle.' : `You have Black. ${lvl.name} starts.`, true, [G.me === 'w' ? S.game.white : S.game.black]);
   else { setCoach('happy', game.turn() === G.me ? 'Welcome back – your move.' : `${lvl.name} to move.`, false); R.status = true; }
   prefetch([...Object.values(S.lead).flat(), S.book, S.alert.blunder, S.alert.mistake, S.game.takeback]);
   drawGame();
   if (game.isGameOver()) return endGame();
-  if (game.turn() === G.me) userTurn(); else botTurn(R.tok);
+  if (myTurn()) userTurn(); else botTurn(R.tok);
+}
+
+// which colour sits at the bottom of the board
+function bottom(g) { return G.otb ? (G.turnBoard ? g.turn() : 'w') : G.me; }
+
+// over the board: next player's turn (turn the board if asked)
+function otbNext() {
+  const g = R.game;
+  if (G.turnBoard && R.board.flipped !== (g.turn() === 'b')) {
+    const tok = R.tok;
+    setTimeout(() => { if (!R || R.dead || tok !== R.tok) return; R.board.setPosition(g.board(), { animate: false, flipped: g.turn() === 'b' }); drawGame(); }, 650);
+  }
+  userTurn();
 }
 
 function setCoach(mood, html, speak, say) {
@@ -135,27 +161,33 @@ const capRow = (types, color) => types.length ? `<span class="caps">${types.map(
 
 function drawGame() {
   if (!R || R.dead || !$('#board')) return;
-  const g = R.game, lvl = levelOf(G.levelId), foe = G.me === 'w' ? 'b' : 'w';
+  const g = R.game, lvl = levelOf(G.levelId);
   R.board.setMarks({ last: R.last, check: kingInCheck(g), arrows: R.arrow ? [R.arrow] : [], hint: R.hintSq, badge: R.badge });
-  const cap = captured(g), mine = G.me === 'w' ? cap.byWhite : cap.byBlack, theirs = G.me === 'w' ? cap.byBlack : cap.byWhite;
-  const d = cap.diff * (G.me === 'w' ? 1 : -1);
-  const thinking = !G.over && g.turn() !== G.me && !R.pending;
+  const cap = captured(g);
+  const low = G.otb ? (R.board.flipped ? 'b' : 'w') : G.me, high = low === 'w' ? 'b' : 'w';
+  const capBy = c => (c === 'w' ? cap.byWhite : cap.byBlack), adv = c => cap.diff * (c === 'w' ? 1 : -1);
+  const thinking = !G.otb && !G.over && g.turn() !== G.me && !R.pending;
   $('#pright').textContent = G.over ? G.result.replace('1/2-1/2', '½-½') : `Move ${g.moveNumber()}`;
-  $('#opp').innerHTML = `<span class="ava">${botFace(lvl)}</span><b>${lvl.name}</b><span class="elo">${lvl.elo}</span>
-    ${capRow(theirs, G.me)}<span class="mat">${thinking ? '<span class="dotsanim">thinking</span>' : d < 0 ? '+' + -d : ''}</span>`;
-  $('#opp').className = 'strip' + (thinking ? ' turn' : '');
-  $('#mine').className = 'strip' + (!G.over && g.turn() === G.me && !R.pending ? ' turn' : '');
-  $('#mine').innerHTML = `<span class="ava you">${pieceSvg(G.me, 'k')}</span><b>You</b>${capRow(mine, foe)}<span class="mat">${d > 0 ? '+' + d : ''}</span>`;
+  if (G.otb) {
+    $('#opp').innerHTML = `<span class="ava you">${pieceSvg(high, 'k')}</span><b>${SIDE(high)}</b>${capRow(capBy(high), low)}<span class="mat">${adv(high) > 0 ? '+' + adv(high) : ''}</span>`;
+    $('#opp').className = 'strip' + (!G.over && g.turn() === high && !R.pending ? ' turn' : '');
+  } else {
+    $('#opp').innerHTML = `<span class="ava">${botFace(lvl)}</span><b>${lvl.name}</b><span class="elo">${lvl.elo}</span>
+    ${capRow(capBy(high), low)}<span class="mat">${thinking ? '<span class="dotsanim">thinking</span>' : adv(high) > 0 ? '+' + adv(high) : ''}</span>`;
+    $('#opp').className = 'strip' + (thinking ? ' turn' : '');
+  }
+  $('#mine').className = 'strip' + (!G.over && g.turn() === low && !R.pending ? ' turn' : '');
+  $('#mine').innerHTML = `<span class="ava you">${pieceSvg(low, 'k')}</span><b>${G.otb ? SIDE(low) : 'You'}</b>${capRow(capBy(low), high)}<span class="mat">${adv(low) > 0 ? '+' + adv(low) : ''}</span>`;
   const h = g.history();
   $('#gmoves').innerHTML = h.map((s, i) => {
-    const inf = G.infos[i], mineMove = (i % 2 === 0 ? 'w' : 'b') === G.me;
+    const inf = G.infos[i], mineMove = G.otb || (i % 2 === 0 ? 'w' : 'b') === G.me;
     return `<span class="mv ${i === h.length - 1 ? 'on' : ''}">${i % 2 === 0 ? `<u>${i / 2 + 1}.</u>` : ''}${s}${inf && mineMove && inf.cls !== 'book' ? clsIcon(inf.cls, 14) : ''}</span>`;
   }).join('');
   const strip = $('#gmoves'); strip.scrollLeft = strip.scrollWidth;
   const hl = ['Hint', 'More help', 'Show me'][Math.min(R.hintLvl, 2)];
   $('#actions').innerHTML = G.over
     ? `<button class="btn sec fit" data-act="rematch">Rematch</button><button class="btn" data-act="review">Game review</button>`
-    : `<button class="btn sec" data-act="hint" ${g.turn() !== G.me || R.busy || R.pending ? 'disabled' : ''}>💡 ${hl}</button><button class="btn sec" data-act="undo" ${g.turn() !== G.me || R.busy || R.pending || g.history().length < 2 ? 'disabled' : ''}>↶ Undo</button><button class="btn sec fit" data-act="resign" aria-label="Resign">⚑</button>`;
+    : `<button class="btn sec" data-act="hint" ${!myTurn() || R.busy || R.pending ? 'disabled' : ''}>💡 ${hl}</button><button class="btn sec" data-act="undo" ${!myTurn() || R.busy || R.pending || g.history().length < (G.otb ? 1 : 2) ? 'disabled' : ''}>↶ Undo</button><button class="btn sec fit" data-act="resign" aria-label="Resign">⚑</button>`;
 }
 
 function userTurn() {
@@ -173,21 +205,23 @@ function prevInfo() {
 
 async function gameMove(from, to) {
   const g = R.game;
-  if (G.over || R.busy || R.pending || g.turn() !== G.me) return;
+  if (G.over || R.busy || R.pending || !myTurn()) return;
   let promotion;
   const pc = g.get(from);
   if (pc.type === 'p' && (to[1] === '8' || to[1] === '1')) {
-    promotion = await R.board.askPromotion(G.me);
+    promotion = await R.board.askPromotion(pc.color);
     if (!promotion) return R.board.setPosition(g.board());
   }
   const fenBefore = g.fen(), ctx = prevInfo();
   let m; try { m = g.move({ from, to, promotion }); } catch (e) { play('illegal'); return R.board.setPosition(g.board()); }
   R.busy = true; R.arrow = null; R.hintSq = []; R.badge = null; R.last = [m.from, m.to];
-  moveSound(m, g, true);
+  moveSound(m, g, G.otb ? m.color === 'w' : true);
   G.sans.push(m.san); G.infos.push(null); saveCurrent();
   R.board.setPosition(g.board());
   drawGame();
   const tok = ++R.tok, ply = G.sans.length - 1, uci = uciOf(m);
+  const tag = G.otb ? `<span class="who">${SIDE(m.color)}</span> ` : '';
+  const P = G.otb ? C.persp(true, 'you', SIDE(m.color === 'w' ? 'b' : 'w')) : R.P;
   const op = C.opening(G.sans);
   let info = null;
   if (op.plies >= G.sans.length) info = C.bookInfo(fenBefore, uci);
@@ -208,20 +242,20 @@ async function gameMove(from, to) {
     if (news) R.lastOpening = op.name;
     const prev = G.infos[ply - 1];
     if (['mistake', 'blunder', 'miss'].includes(info.cls)) {
-      const hidden = C.explain(info, R.P, { prevInfo: prev, hideBest: true, prevTo: ctx.prevTo });
-      R.keepText = `${clsTag(info.cls)} ${C.describe(info, R.P, { prevInfo: prev, prevTo: ctx.prevTo })}`;
+      const hidden = C.explain(info, P, { prevInfo: prev, hideBest: true, prevTo: ctx.prevTo });
+      R.keepText = `${clsTag(info.cls)} ${tag}${C.describe(info, P, { prevInfo: prev, prevTo: ctx.prevTo })}`;
       R.pending = true;
-      R.botFen = g.fen(); R.botP = botSearch(g.fen());
-      setCoach('oops', `${clsTag(info.cls)} ${hidden.text}<div class="row"><button class="go" data-act="takeback">↶ Take it back</button><button data-act="keep">Play on</button></div>`, true, [...hidden.say, S.game.takeback]);
+      if (!G.otb) { R.botFen = g.fen(); R.botP = botSearch(g.fen()); }
+      setCoach('oops', `${clsTag(info.cls)} ${tag}${hidden.text}<div class="row"><button class="go" data-act="takeback">↶ Take it back</button><button data-act="keep">Play on</button></div>`, true, [...hidden.say, S.game.takeback]);
       return drawGame();
     }
-    const ex = info.cls === 'book' ? { text: news ? `This is the ${op.name}.` : 'A standard opening move.', say: [S.book, news && S.opening(op.name)] } : C.explain(info, R.P, { prevInfo: prev, prevTo: ctx.prevTo });
+    const ex = info.cls === 'book' ? { text: news ? `This is the ${op.name}.` : 'A standard opening move.', say: [S.book, news && S.opening(op.name)] } : C.explain(info, P, { prevInfo: prev, prevTo: ctx.prevTo });
     const mood = info.cls === 'inaccuracy' ? 'think' : (info.cls === 'brilliant' || info.cls === 'great') ? 'wow' : 'happy';
-    setCoach(mood, `${clsTag(info.cls)} ${ex.text}`, KEY_CLS.includes(info.cls) ? true : (info.cls === 'book' && !news) ? false : 'minor', ex.say);
+    setCoach(mood, `${clsTag(info.cls)} ${tag}${ex.text}`, KEY_CLS.includes(info.cls) ? true : (info.cls === 'book' && !news) ? false : 'minor', ex.say);
     if (info.cls === 'brilliant') confetti($('#board'));
   }
   drawGame();
-  botTurn(tok);
+  if (G.otb) otbNext(); else botTurn(tok);
 }
 
 const botSearch = fen => { const l = levelOf(G.levelId); return engine().analyse(fen, { depth: l.depth, multipv: l.multipv, tag: 'game' }).catch(() => null); };
@@ -284,7 +318,7 @@ function gameTakeback() {
 }
 
 async function gameHint() {
-  if (G.over || R.busy || R.pending || R.game.turn() !== G.me) return;
+  if (G.over || R.busy || R.pending || !myTurn()) return;
   const fen = R.game.fen(), lvl = Math.min(3, R.hintLvl + 1);
   if (lvl === 1) setCoach('think', '<span class="dotsanim">Let me look</span>', false);
   const root = await R.rootP;
@@ -298,49 +332,53 @@ async function gameHint() {
 }
 
 function gameUndo() {
-  if (G.over || R.busy || R.pending || R.game.turn() !== G.me || G.sans.length < 2) return;
+  const n = G.otb ? 1 : 2;
+  if (G.over || R.busy || R.pending || !myTurn() || G.sans.length < n) return;
   R.tok++;
   try { engine().cancel('game'); } catch (e) { /* ignore */ }
-  R.game.undo(); R.game.undo(); G.sans.splice(-2); G.infos.splice(-2); saveCurrent();
+  for (let i = 0; i < n; i++) R.game.undo();
+  G.sans.splice(-n); G.infos.splice(-n); saveCurrent();
+  if (G.otb && G.turnBoard) R.board.setPosition(R.game.board(), { animate: false, flipped: R.game.turn() === 'b' });
   const h = R.game.history({ verbose: true }), lm = h[h.length - 1];
   R.last = lm ? [lm.from, lm.to] : []; R.badge = null;
   R.board.setPosition(R.game.board());
-  setCoach('happy', 'Took a move back. Your turn again.', false);
+  setCoach('happy', G.otb ? `Took a move back. ${SIDE(R.game.turn())} to move.` : 'Took a move back. Your turn again.', false);
   userTurn();
 }
 
 function endGame(reason) {
   const g = R.game, lvl = levelOf(G.levelId); let result, why, mood = 'happy';
   let sayEnd;
-  if (reason === 'resign') { result = G.me === 'w' ? '0-1' : '1-0'; why = 'You resigned.'; mood = 'think'; sayEnd = S.game.resign; }
+  const loser = reason === 'resign' ? (G.otb ? g.turn() : G.me) : null;
+  if (reason === 'resign') { result = loser === 'w' ? '0-1' : '1-0'; why = G.otb ? `${SIDE(loser)} resigned.` : 'You resigned.'; mood = 'think'; sayEnd = G.otb ? null : S.game.resign; }
   else if (g.isCheckmate()) {
     const winner = g.turn() === 'w' ? 'b' : 'w';
     result = winner === 'w' ? '1-0' : '0-1';
-    why = winner === G.me ? 'Checkmate – you won!' : `Checkmate. ${lvl.name} wins this one.`;
-    mood = winner === G.me ? 'wow' : 'oops';
-    sayEnd = winner === G.me ? S.game.win : S.game.lost;
+    why = G.otb ? `Checkmate – ${SIDE(winner)} wins!` : winner === G.me ? 'Checkmate – you won!' : `Checkmate. ${lvl.name} wins this one.`;
+    mood = G.otb || winner === G.me ? 'wow' : 'oops';
+    sayEnd = G.otb ? S.checkmate : winner === G.me ? S.game.win : S.game.lost;
   } else {
     result = '1/2-1/2';
     why = g.isStalemate() ? 'Stalemate – it’s a draw.' : g.isThreefoldRepetition() ? 'Draw by repetition.' : g.isInsufficientMaterial() ? 'Draw – not enough pieces left to checkmate.' : 'Draw by the fifty-move rule.';
     sayEnd = g.isStalemate() ? S.game.stalemate : g.isThreefoldRepetition() ? S.game.repetition : g.isInsufficientMaterial() ? S.game.material : S.game.fifty;
   }
   G.over = true; G.result = result; R.busy = false; R.pending = false; R.tok++;
-  const won = (result === '1-0' && G.me === 'w') || (result === '0-1' && G.me === 'b');
+  const won = G.otb ? result !== '1/2-1/2' : (result === '1-0' && G.me === 'w') || (result === '0-1' && G.me === 'b');
   play(won ? 'win' : result === '1/2-1/2' ? 'draw' : 'lose');
-  store.games.unshift({ id: G.id, date: new Date().toISOString().slice(0, 10), me: G.me, opp: lvl.name, elo: lvl.elo, levelId: G.levelId, result, sans: G.sans.slice(), infos: G.infos.slice(), hints: G.hints || 0 });
+  store.games.unshift({ id: G.id, date: new Date().toISOString().slice(0, 10), me: G.me, opp: G.otb ? 'Black' : lvl.name, elo: G.otb ? 0 : lvl.elo, levelId: G.levelId, otb: !!G.otb, result, sans: G.sans.slice(), infos: G.infos.slice(), hints: G.hints || 0 });
   store.games = store.games.slice(0, 20);
   store.current = null; persist();
   setCoach(mood, `<b>${why}</b> ${G.sans.length >= 6 ? 'Let’s go through the game together – I’ll show you what you could have done better.' : ''}`, true, [sayEnd, G.sans.length >= 6 && S.game.review]);
   drawGame();
-  const title = won ? 'You won!' : result === '1/2-1/2' ? 'Draw' : `${lvl.name} won`;
+  const title = G.otb ? (result === '1-0' ? 'White wins' : result === '0-1' ? 'Black wins' : 'Draw') : won ? 'You won!' : result === '1/2-1/2' ? 'Draw' : `${lvl.name} won`;
   const sub = reason === 'resign' ? 'by resignation' : g.isCheckmate() ? 'by checkmate' : why.replace(/^Draw[ –]*/, '').replace(/^by /, 'by ');
   const card = document.createElement('div');
   card.id = 'overcard'; card.className = 'overcard ' + (won ? 'won' : result === '1/2-1/2' ? 'drawn' : 'lost');
   card.innerHTML = `<div class="oc-in"><button class="oc-x" data-act="closecard" aria-label="Close">×</button>
     <div class="oc-icon">${won ? '🏆' : result === '1/2-1/2' ? '🤝' : '♟'}</div><h2>${title}</h2><p>${sub}</p>
-    <div class="oc-faces"><span class="ava big you">${pieceSvg(G.me, 'k')}</span><b>${result.replace('1/2-1/2', '½-½')}</b><span class="ava big">${botFace(lvl)}</span></div>
+    <div class="oc-faces"><span class="ava big you">${pieceSvg(G.otb ? 'w' : G.me, 'k')}</span><b>${result.replace('1/2-1/2', '½-½')}</b><span class="ava big ${G.otb ? 'you' : ''}">${G.otb ? pieceSvg('b', 'k') : botFace(lvl)}</span></div>
     <button class="btn" data-act="review">Game review</button>
-    <div class="oc-row"><button class="btn sec" data-act="rematch">Rematch</button><button class="btn sec" data-act="newgame">New bot</button></div></div>`;
+    <div class="oc-row"><button class="btn sec" data-act="rematch">${G.otb ? 'New game' : 'Rematch'}</button><button class="btn sec" data-act="newgame">${G.otb ? 'Play a bot' : 'New bot'}</button></div></div>`;
   $('.board-wrap').appendChild(card);
   if (won) confetti($('#board'), 140);
 }

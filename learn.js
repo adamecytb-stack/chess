@@ -26,7 +26,7 @@ export function viewHome() {
     <div class="home-top"><span class="brand">Knight School</span>
       <span class="pill">★ ${got}<span class="muted" style="font-weight:700">&nbsp;/ ${total}</span></span></div>
     <div class="home-coach">${coachBox('happy', hello, 'hc')}</div>
-    ${store.current ? `<button class="btn col" data-go="#/game" style="margin-bottom:12px"><span>Continue your game</span><small>vs ${esc(store.current.levelName || 'bot')}, move ${Math.ceil((store.current.sans.length + 1) / 2)}</small></button>` : ''}
+    ${store.current ? `<button class="btn col" data-go="#/game" style="margin-bottom:12px"><span>Continue your game</span><small>${store.current.otb ? 'Over the board' : 'vs ' + esc(store.current.levelName || 'bot')}, move ${Math.ceil((store.current.sans.length + 1) / 2)}</small></button>` : ''}
     ${next ? `<button class="btn ${store.current ? 'sec' : ''} col" data-go="#/l/${next.id}"><span>${got ? 'Continue learning' : 'Start the first lesson'}</span><small>${esc(next.title)}</small></button>` : `<button class="btn" data-go="#/play">Play a game</button>`}
     ${COURSE.map(u => {
       const done = u.lessons.reduce((s, l) => s + starsOf(l.id), 0), max = u.lessons.length * 3;

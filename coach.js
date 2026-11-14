@@ -697,27 +697,28 @@ export function accuracyOf(list) {
   return (mean + harm) / 2;
 }
 
-export function summarize(rev, me, result, oppName) {
+export function summarize(rev, me, result, oppName, otb = false) {
   const stat = c => {
     const ms = rev.moves.filter(m => m.mover === c);
     const n = {}; Object.keys(CLASSES).forEach(k => { n[k] = ms.filter(m => m.cls === k).length; });
     return { acc: accuracyOf(ms), n };
   };
   const s = { w: stat('w'), b: stat('b') };
-  const mine = rev.moves.map((m, i) => ({ ...m, i, no: Math.floor(i / 2) + 1 })).filter(m => m.mover === me);
+  const mine = rev.moves.map((m, i) => ({ ...m, i, no: Math.floor(i / 2) + 1 })).filter(m => otb || m.mover === me);
   const bad = mine.filter(m => ['mistake', 'blunder', 'miss'].includes(m.cls));
   const worst = [...bad].sort((a, b) => b.drop - a.drop)[0];
   const text = [];
   const you = me === 'w' ? '1-0' : '0-1';
-  text.push(result === you ? 'Well played – a win!' : result === '1/2-1/2' ? 'A draw. Let’s see where either side could have done more.' : result === '*' ? 'Let’s look at what happened.' : 'A tough one – but losses teach the most.');
+  if (otb) text.push(result === '1-0' ? 'White won this one.' : result === '0-1' ? 'Black won this one.' : result === '1/2-1/2' ? 'A draw.' : 'Let’s look at what happened.');
+  else text.push(result === you ? 'Well played – a win!' : result === '1/2-1/2' ? 'A draw. Let’s see where either side could have done more.' : result === '*' ? 'Let’s look at what happened.' : 'A tough one – but losses teach the most.');
   if (rev.opening) {
     const early = mine.find(m => m.no <= 10 && BAD.includes(m.cls));
     text.push(`It was the <b>${rev.opening}</b>. ` + (early ? `The first slip came on move ${early.no}.` : 'You came out of the opening in good shape.'));
   }
   if (worst) {
-    const P = persp(true, 'you', oppName || 'your opponent');
-    text.push(`The key moment was move ${worst.no}, <b>${worst.san}</b>: ${describe(worst, P, { prevInfo: rev.moves[worst.i - 1] })}`);
-  } else text.push('No big mistakes from you in this game – very clean.');
+    const P = persp(true, 'you', otb ? (worst.mover === 'w' ? 'Black' : 'White') : oppName || 'your opponent');
+    text.push(`The key moment was move ${worst.no}${otb ? ` (${worst.mover === 'w' ? 'White' : 'Black'})` : ''}, <b>${worst.san}</b>: ${describe(worst, P, { prevInfo: rev.moves[worst.i - 1] })}`);
+  } else text.push(otb ? 'No big mistakes on either side – very clean.' : 'No big mistakes from you in this game – very clean.');
   const great = mine.filter(m => m.cls === 'brilliant' || m.cls === 'great');
   if (great.length) text.push(`Best moment: <b>${great[0].no}.${great[0].mover === 'b' ? '..' : ''}${great[0].san}</b> – ${CLASSES[great[0].cls].label.toLowerCase()}!`);
   const counts = {};

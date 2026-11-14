@@ -14,6 +14,7 @@ let V = null;   // walkthrough state
 const KEYS = ['brilliant', 'great', 'mistake', 'miss', 'blunder'];
 
 function resultFor(rec) {
+  if (rec.otb) return ['otb', rec.result === '1/2-1/2' ? '½' : rec.result === '*' ? '?' : rec.result];
   if (rec.result === '1/2-1/2') return ['draw', '½'];
   if (rec.result === '*') return ['draw', '?'];
   return (rec.result === '1-0') === (rec.me === 'w') ? ['win', 'W'] : ['loss', 'L'];
@@ -27,7 +28,7 @@ export function viewReviewList() {
     <div class="home-coach">${coachBox('happy', games.length ? 'Pick a game. I’ll grade every move and explain the ones that matter.' : 'No games yet. Play one – or paste a game from another site below – and I’ll go through it with you.')}</div>
     <div class="games">${games.map(r => { const [c, t] = resultFor(r); return `
       <button class="game" data-go="#/review/${r.id}"><span class="res ${c}">${t}</span>
-        <div><b>vs ${esc(r.opp)}${r.elo ? ` (${r.elo})` : ''}</b><span>${r.date}, ${Math.ceil(r.sans.length / 2)} moves, you were ${r.me === 'w' ? 'White' : 'Black'}${r.acc ? `, accuracy ${r.acc.toFixed(0)}` : ''}</span></div><em>›</em></button>`; }).join('')}</div>
+        <div><b>${r.otb ? 'Over the board' : `vs ${esc(r.opp)}${r.elo ? ` (${r.elo})` : ''}`}</b><span>${r.date}, ${Math.ceil(r.sans.length / 2)} moves${r.otb ? ', both sides' : `, you were ${r.me === 'w' ? 'White' : 'Black'}`}${r.acc && !r.otb ? `, accuracy ${r.acc.toFixed(0)}` : ''}</span></div><em>›</em></button>`; }).join('')}</div>
     ${games.length ? '' : `<button class="btn" data-go="#/play" style="margin-bottom:8px">Play a game</button>`}
     <p class="field">Review a game from another site</p>
     <textarea id="pgn" placeholder="Paste the PGN here (on most chess sites: Share, then PGN)"></textarea>
@@ -67,7 +68,7 @@ export async function viewReview(id, mode) {
       }, () => tok !== UI.viewTok);
       if (!rev || tok !== UI.viewTok) return;
       rec.infos = rev.moves.map(m => ({ ...m, bestPv: (m.bestPv || []).slice(0, 8), playedPv: (m.playedPv || []).slice(0, 8) }));
-      const sum = C.summarize(rev, rec.me, rec.result, rec.opp);
+      const sum = C.summarize(rev, rec.me, rec.result, rec.opp, !!rec.otb);
       rec.acc = sum.stats[rec.me].acc;
       persist();
       REV.set(rec.id, { rev, sum });
@@ -95,11 +96,11 @@ function graphSvg() {
 function viewSummary() {
   const { rec, sum, rev } = V, me = sum.stats[rec.me], opp = sum.stats[rec.me === 'w' ? 'b' : 'w'];
   const [rc] = resultFor(rec);
-  const moments = rev.moves.map((m, i) => ({ m, i })).filter(x => x.m.mover === rec.me && KEYS.includes(x.m.cls));
-  screen(`<div class="top"><button class="back" data-go="#/review" aria-label="Back">‹</button><span class="ttl">Game review</span><span class="right">vs ${esc(rec.opp)}</span></div>
+  const moments = rev.moves.map((m, i) => ({ m, i })).filter(x => (rec.otb || x.m.mover === rec.me) && KEYS.includes(x.m.cls));
+  screen(`<div class="top"><button class="back" data-go="#/review" aria-label="Back">‹</button><span class="ttl">Game review</span><span class="right">${rec.otb ? 'White vs Black' : `vs ${esc(rec.opp)}`}</span></div>
     <div class="page">
       ${coachBox(rc === 'win' ? 'wow' : rc === 'loss' ? 'think' : 'happy', sum.text.map(t => `<p>${t}</p>`).join(''), 'sc')}
-      <div class="acc"><div class="me"><div class="ring" style="--p:${me.acc.toFixed(1)}"><strong>${me.acc.toFixed(1)}</strong></div><span>Your accuracy</span></div><div><div class="ring" style="--p:${opp.acc.toFixed(1)};--rc:#9aa3b2"><strong>${opp.acc.toFixed(1)}</strong></div><span>${esc(rec.opp)}</span></div></div>
+      <div class="acc"><div class="me"><div class="ring" style="--p:${me.acc.toFixed(1)}"><strong>${me.acc.toFixed(1)}</strong></div><span>${rec.otb ? 'White' : 'Your accuracy'}</span></div><div><div class="ring" style="--p:${opp.acc.toFixed(1)};--rc:#9aa3b2"><strong>${opp.acc.toFixed(1)}</strong></div><span>${esc(rec.opp)}</span></div></div>
       <p class="muted small">Your winning chances during the game. Tap to jump there.</p>
       ${graphSvg()}
       <table class="counts"><tr><td>You</td><td></td><td>${esc(rec.opp)}</td></tr>
@@ -109,7 +110,7 @@ function viewSummary() {
       <button class="btn" data-act="walk">Go through the game</button>
     </div>`, null);
   $('#view').classList.add('pad');
-  const first = rec.result === '*' ? S.review.open : rc === 'win' ? S.review.win : rc === 'loss' ? S.review.loss : S.review.draw;
+  const first = rec.result === '*' || rec.otb ? S.review.open : rc === 'win' ? S.review.win : rc === 'loss' ? S.review.loss : S.review.draw;
   coachSet($('#sc'), rc === 'win' ? 'wow' : 'think', $('#sc .bubble').innerHTML, { speak: true, say: [first, moments.length ? S.review.keys : S.review.clean] });
   ACT.walk = () => { V.start = 0; go(`#/review/${rec.id}/moves`); };
   ACT.jump = el => { V.start = +el.dataset.id; go(`#/review/${rec.id}/moves`); };
@@ -188,8 +189,8 @@ function showPly(i, animate = true) {
   let html, mood = 'happy', speak = 'minor', sayLines = [S.review.start];
   if (!m) html = `${rev.opening ? `This was the <b>${rev.opening}</b>. ` : ''}Tap <b>Next</b> to step through. The green arrow shows the move I would have played.`;
   else {
-    const mine = m.mover === rec.me;
-    const P = mine ? C.persp(true, 'you', rec.opp) : C.persp(false, rec.opp === 'your opponent' ? 'your opponent' : rec.opp);
+    const mine = rec.otb || m.mover === rec.me;
+    const P = mine ? C.persp(true, 'you', rec.otb ? (m.mover === 'w' ? 'Black' : 'White') : rec.opp) : C.persp(false, rec.opp === 'your opponent' ? 'your opponent' : rec.opp);
     let openingName = '';
     if (m.cls === 'book') {
       const a = C.opening(rec.sans.slice(0, i)).name, b = C.opening(rec.sans.slice(0, i - 1)).name;
@@ -198,7 +199,7 @@ function showPly(i, animate = true) {
     const ex = C.explain(m, P, { prevInfo: rev.moves[i - 2], openingName });
     const text = ex.text; sayLines = ex.say;
     mood = !C.BAD.includes(m.cls) ? (['brilliant', 'great'].includes(m.cls) ? 'wow' : 'happy') : mine ? 'oops' : 'think';
-    const who = mine ? '' : ` <span class="who">${esc(rec.opp === 'your opponent' ? 'opponent' : rec.opp)}</span>`;
+    const who = rec.otb ? ` <span class="who">${m.mover === 'w' ? 'White' : 'Black'}</span>` : mine ? '' : ` <span class="who">${esc(rec.opp === 'your opponent' ? 'opponent' : rec.opp)}</span>`;
     const btns = [];
     const bu = m.bestPv && m.bestPv[0];
     if (bu && bu !== m.uci && m.cls !== 'book' && m.cls !== 'best') btns.push(['bestline', '▶ Best line']);
