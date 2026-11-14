@@ -7,6 +7,7 @@ import { viewHome, viewIntro, startLesson, stopLesson, byId } from './learn.js';
 import { viewPlaySetup, viewGame } from './play.js';
 import { viewReviewList, viewReview, reviewKeys } from './review.js';
 import { viewSettings } from './settings.js';
+import { viewEditor } from './editor.js';
 
 function route() {
   stopLesson();
@@ -15,6 +16,7 @@ function route() {
   if (kind === 'game') return viewGame();
   if (kind === 'review') return id ? viewReview(id, mode) : viewReviewList();
   if (kind === 'settings') return viewSettings();
+  if (kind === 'setup') return viewEditor();
   const lesson = kind === 'l' && byId(id);
   if (!lesson) return viewHome();
   if ((mode === 'learn' || mode === 'practice') && lesson.parts.length) return startLesson(lesson, mode);

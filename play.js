@@ -8,6 +8,7 @@ import { avatar } from './avatars.js';
 import { S } from './speech.js';
 import { prefetch } from './voice.js';
 import { confetti } from './fx.js';
+import { miniBoard } from './editor.js';
 import * as C from './coach.js';
 import { store, persist, prefs, savePrefs, $, esc, sleep, ACT, screen, go, coachBox, coachSet, clsTag, boardShell, kingInCheck, onLeave } from './ui.js';
 export const botFace = l => avatar(l.id, l.color);
@@ -32,12 +33,21 @@ const uciOf = m => m.from + m.to + (m.promotion || '');
 
 let G = null;   // saved game state
 let R = null;   // screen runtime state
-let setup = { level: 'mira', color: 'w', turnBoard: false };
+let setup = { level: 'mira', color: 'w', turnBoard: false, start: 'normal', fen: '' };
 try { Object.assign(setup, JSON.parse(localStorage.getItem('ks.setup') || '{}')); } catch (e) { /* ignore */ }
 
 function saveCurrent() {
-  store.current = G && !G.over ? { id: G.id, levelId: G.levelId, levelName: levelOf(G.levelId).name, me: G.me, tips: G.tips, sans: G.sans, infos: G.infos, hints: G.hints || 0, otb: !!G.otb, turnBoard: !!G.turnBoard } : null;
+  store.current = G && !G.over ? { id: G.id, levelId: G.levelId, levelName: levelOf(G.levelId).name, me: G.me, tips: G.tips, sans: G.sans, infos: G.infos, hints: G.hints || 0, otb: !!G.otb, turnBoard: !!G.turnBoard, startFen: G.startFen || null } : null;
   persist();
+}
+const saveSetup = () => { try { localStorage.setItem('ks.setup', JSON.stringify(setup)); } catch (e) { /* ignore */ } };
+export const getSetup = () => setup;
+export function useCustom(fen) { setup.start = 'custom'; setup.fen = fen; saveSetup(); }
+// colour and move number of half-move i, for games that may start from any position
+function plyOf(i) {
+  const st = (G.startFen || 'x w - - 0 1').split(' '), first = st[1], no0 = +st[5] || 1;
+  const k = i + (first === 'b' ? 1 : 0);
+  return { color: k % 2 === 0 ? 'w' : 'b', no: no0 + Math.floor(k / 2) };
 }
 export const hasGame = () => !!(G && !G.over) || !!store.current;
 
@@ -60,6 +70,9 @@ export function viewPlaySetup() {
       ${setup.level === 'otb' ? `<p class="field">Board</p>
       <div class="seg">${[[false, 'White at the bottom'], [true, 'Turn after each move']].map(([k, t]) => `<button class="${setup.turnBoard === k ? 'on' : ''}" data-act="turnboard" data-id="${k}">${t}</button>`).join('')}</div>` : `<p class="field">You play</p>
       <div class="seg">${[['w', 'White'], ['r', 'Random'], ['b', 'Black']].map(([k, t]) => `<button class="${setup.color === k ? 'on' : ''}" data-act="color" data-id="${k}">${t}</button>`).join('')}</div>`}
+      <p class="field">Start from</p>
+      <div class="seg">${[['normal', 'Normal start'], ['custom', 'Custom position']].map(([k, t]) => `<button class="${setup.start === k ? 'on' : ''}" data-act="startfrom" data-id="${k}">${t}</button>`).join('')}</div>
+      ${setup.start === 'custom' && setup.fen ? `<button class="custompos" data-go="#/setup">${miniBoard(setup.fen)}<div><b>${setup.fen.split(' ')[1] === 'w' ? 'White' : 'Black'} to move</b><span>Tap to edit the position</span></div><em>›</em></button>` : ''}
       <p class="field">Coach</p>
       <button class="switch ${prefs.tips ? 'on' : ''}" data-act="tips"><div><b>Comment on my moves</b><span>Grades every move, warns you about threats, and lets you take back mistakes.</span></div><i></i></button>
       <div style="height:18px"></div>
@@ -68,13 +81,14 @@ export function viewPlaySetup() {
     ACT.level = el => { setup.level = el.dataset.id; draw(); };
     ACT.color = el => { setup.color = el.dataset.id; draw(); };
     ACT.turnboard = el => { setup.turnBoard = el.dataset.id === 'true'; draw(); };
+    ACT.startfrom = el => { setup.start = el.dataset.id; saveSetup(); if (setup.start === 'custom' && !setup.fen) go('#/setup'); else draw(); };
     ACT.tips = () => { prefs.tips = !prefs.tips; savePrefs(); draw(); };
     ACT.start = () => {
       if (G && !G.over && G.sans.length > 2 && !confirm('Abandon the game in progress?')) return;
       try { localStorage.setItem('ks.setup', JSON.stringify(setup)); } catch (e) { /* ignore */ }
       const otb = setup.level === 'otb';
       const me = otb ? 'w' : setup.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : setup.color;
-      G = { id: Date.now(), levelId: setup.level, me, tips: prefs.tips, sans: [], infos: [], over: false, hints: 0, otb, turnBoard: otb && setup.turnBoard };
+      G = { id: Date.now(), levelId: setup.level, me, tips: prefs.tips, sans: [], infos: [], over: false, hints: 0, otb, turnBoard: otb && setup.turnBoard, startFen: setup.start === 'custom' && setup.fen ? setup.fen : null };
       saveCurrent();
       try { engine().newGame(); } catch (e) { /* ignore */ }
       play('start');
@@ -90,7 +104,7 @@ export function viewGame() {
   if (!G) return go('#/play');
   const lvl = levelOf(G.levelId);
   screen(boardShell({ back: '#/play', title: G.otb ? 'Over the board' : `You vs ${lvl.name}`, cls: 'scr-game' }), null);
-  const game = new Chess();
+  const game = G.startFen ? new Chess(G.startFen) : new Chess();
   for (const s of G.sans) game.move(s);
   R = { game, tok: 0, busy: false, pending: false, hintLvl: 0, arrow: null, hintSq: [], badge: null, last: [], lastOpening: '', dead: false, P: C.persp(true, 'you', G.otb ? 'your opponent' : lvl.name) };
   const h = game.history({ verbose: true }), lm = h[h.length - 1];
@@ -124,11 +138,12 @@ export function viewGame() {
   ACT.newgame = () => { G = null; go('#/play'); };
   ACT.rematch = () => {
     const prev = G;
-    G = { id: Date.now(), levelId: prev.levelId, me: prev.otb ? 'w' : prev.me === 'w' ? 'b' : 'w', tips: prev.tips, sans: [], infos: [], over: false, hints: 0, otb: prev.otb, turnBoard: prev.turnBoard };
+    G = { id: Date.now(), levelId: prev.levelId, me: prev.otb ? 'w' : prev.me === 'w' ? 'b' : 'w', tips: prev.tips, sans: [], infos: [], over: false, hints: 0, otb: prev.otb, turnBoard: prev.turnBoard, startFen: prev.startFen || null };
     saveCurrent(); play('start'); viewGame();
   };
   ACT.review = () => go('#/review/' + G.id);
-  if (G.otb) setCoach('happy', game.history().length ? `${SIDE(game.turn())} to move.` : 'Move the pieces for both sides – I’ll grade every move. Playing on a real board? Copy each move here as you play it.', false);
+  if (G.startFen && !game.history().length) setCoach('happy', `Custom position – ${SIDE(game.turn())} to move. ${G.otb ? 'I’ll grade every move.' : game.turn() === G.me ? 'Your move.' : ''}`, false);
+  else if (G.otb) setCoach('happy', game.history().length ? `${SIDE(game.turn())} to move.` : 'Move the pieces for both sides – I’ll grade every move. Playing on a real board? Copy each move here as you play it.', false);
   else if (!game.history().length) setCoach('happy', G.me === 'w' ? 'You have White – your move. Remember: centre, develop, castle.' : `You have Black. ${lvl.name} starts.`, true, [G.me === 'w' ? S.game.white : S.game.black]);
   else { setCoach('happy', game.turn() === G.me ? 'Welcome back – your move.' : `${lvl.name} to move.`, false); R.status = true; }
   prefetch([...Object.values(S.lead).flat(), S.book, S.alert.blunder, S.alert.mistake, S.game.takeback]);
@@ -139,7 +154,7 @@ export function viewGame() {
 
 // estimated playing strength of both sides, from the moves graded so far
 function eloLine() {
-  const est = c => C.estimateElo(G.infos.filter((x, i) => x && (i % 2 === 0 ? 'w' : 'b') === c));
+  const est = c => C.estimateElo(G.infos.filter((x, i) => x && plyOf(i).color === c));
   const w = est('w'), b = est('b');
   if (!w && !b) return '<p class="oc-elo">Too short to estimate ratings.</p>';
   const lvl = levelOf(G.levelId), name = c => G.otb ? SIDE(c) : c === G.me ? 'You' : lvl.name;
@@ -171,11 +186,18 @@ function setCoach(mood, html, speak, say) {
   coachSet($('#gc'), mood, html, { speak, say });
 }
 
+function countPieces(g) {
+  const n = { w: { p: 0, n: 0, b: 0, r: 0, q: 0 }, b: { p: 0, n: 0, b: 0, r: 0, q: 0 } };
+  for (const row of g.board()) for (const c of row) if (c && c.type !== 'k') n[c.color][c.type]++;
+  return n;
+}
 function captured(g) {
-  const start = { p: 8, n: 2, b: 2, r: 2, q: 1 }, have = { w: { p: 0, n: 0, b: 0, r: 0, q: 0 }, b: { p: 0, n: 0, b: 0, r: 0, q: 0 } };
+  const base = G.startFen ? countPieces(new Chess(G.startFen)) : null;
+  const have = { w: { p: 0, n: 0, b: 0, r: 0, q: 0 }, b: { p: 0, n: 0, b: 0, r: 0, q: 0 } };
+  const start0 = { p: 8, n: 2, b: 2, r: 2, q: 1 };
   let diff = 0;
   for (const row of g.board()) for (const c of row) if (c && c.type !== 'k') { have[c.color][c.type]++; diff += (c.color === 'w' ? 1 : -1) * C.VAL[c.type]; }
-  const lost = color => 'pnbrq'.split('').flatMap(t => Array(Math.max(0, start[t] - have[color][t])).fill(t));
+  const lost = color => 'pnbrq'.split('').flatMap(t => Array(Math.max(0, (base ? base[color][t] : start0[t]) - have[color][t])).fill(t));
   return { byWhite: lost('b'), byBlack: lost('w'), diff };
 }
 const capRow = (types, color) => types.length ? `<span class="caps">${types.map(t => `<i>${pieceSvg(color, t)}</i>`).join('')}</span>` : '';
@@ -212,8 +234,8 @@ function drawGame() {
   $('#mine').innerHTML = `<span class="ava you">${pieceSvg(low, 'k')}</span><b>${G.otb ? SIDE(low) : 'You'}</b>${capRow(capBy(low), high)}<span class="mat">${adv(low) > 0 ? '+' + adv(low) : ''}</span>`;
   const h = g.history();
   $('#gmoves').innerHTML = h.map((s, i) => {
-    const inf = G.infos[i], mineMove = G.otb || (i % 2 === 0 ? 'w' : 'b') === G.me;
-    return `<span class="mv ${i === h.length - 1 ? 'on' : ''}">${i % 2 === 0 ? `<u>${i / 2 + 1}.</u>` : ''}${s}${inf && mineMove && inf.cls !== 'book' ? clsIcon(inf.cls, 14) : ''}</span>`;
+    const pl = plyOf(i), inf = G.infos[i], mineMove = G.otb || pl.color === G.me;
+    return `<span class="mv ${i === h.length - 1 ? 'on' : ''}">${pl.color === 'w' ? `<u>${pl.no}.</u>` : i === 0 ? `<u>${pl.no}…</u>` : ''}${s}${inf && mineMove && inf.cls !== 'book' ? clsIcon(inf.cls, 14) : ''}</span>`;
   }).join('');
   const strip = $('#gmoves'); strip.scrollLeft = strip.scrollWidth;
   const hl = ['Hint', 'More help', 'Show me'][Math.min(R.hintLvl, 2)];
@@ -259,7 +281,7 @@ async function gameMove(from, to) {
   const tok = ++R.tok, ply = G.sans.length - 1, uci = uciOf(m);
   const tag = G.otb ? `<span class="who">${SIDE(m.color)}</span> ` : '';
   const P = G.otb ? C.persp(true, 'you', SIDE(m.color === 'w' ? 'b' : 'w')) : R.P;
-  const op = C.opening(G.sans);
+  const op = G.startFen ? { name: '', plies: 0 } : C.opening(G.sans);
   let info = null;
   if (op.plies >= G.sans.length) info = C.bookInfo(fenBefore, uci);
   else {
@@ -332,7 +354,7 @@ async function botTurn(tok) {
   if (R.status) setCoach('happy', 'Your move.', false);
   userTurn();
   // grade the bot's move (for the review, and to tell you when it blundered)
-  const bookNow = C.opening(G.sans).plies >= G.sans.length;
+  const bookNow = !G.startFen && C.opening(G.sans).plies >= G.sans.length;
   (bookNow ? Promise.resolve(C.bookInfo(fen, uciOf(m))) : C.gradeMove(engine(), fen, uciOf(m), { tag: 'game', ...ctx, noVerify: !G.tips })).then(info => {
     if (!G || G.sans[ply] !== m.san) return;
     G.infos[ply] = info; saveCurrent();
@@ -403,7 +425,7 @@ function endGame(reason) {
   G.over = true; G.result = result; R.busy = false; R.pending = false; R.tok++;
   const won = G.otb ? result !== '1/2-1/2' : (result === '1-0' && G.me === 'w') || (result === '0-1' && G.me === 'b');
   play(won ? 'win' : result === '1/2-1/2' ? 'draw' : 'lose');
-  store.games.unshift({ id: G.id, date: new Date().toISOString().slice(0, 10), me: G.me, opp: G.otb ? 'Black' : lvl.name, elo: G.otb ? 0 : lvl.elo, levelId: G.levelId, otb: !!G.otb, result, sans: G.sans.slice(), infos: G.infos.slice(), hints: G.hints || 0 });
+  store.games.unshift({ id: G.id, date: new Date().toISOString().slice(0, 10), me: G.me, opp: G.otb ? 'Black' : lvl.name, elo: G.otb ? 0 : lvl.elo, levelId: G.levelId, otb: !!G.otb, ...(G.startFen ? { fen: G.startFen } : {}), result, sans: G.sans.slice(), infos: G.infos.slice(), hints: G.hints || 0 });
   store.games = store.games.slice(0, 20);
   store.current = null; persist();
   setCoach(mood, `<b>${why}</b> ${G.sans.length >= 6 ? 'Let’s go through the game together – I’ll show you what you could have done better.' : ''}`, true, [sayEnd, G.sans.length >= 6 && S.game.review]);

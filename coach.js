@@ -738,7 +738,7 @@ export function summarize(rev, me, result, oppName, otb = false) {
     return { acc: accuracyOf(ms), n };
   };
   const s = { w: stat('w'), b: stat('b') };
-  const mine = rev.moves.map((m, i) => ({ ...m, i, no: Math.floor(i / 2) + 1 })).filter(m => otb || m.mover === me);
+  const mine = rev.moves.map((m, i) => ({ ...m, i, no: +m.fen.split(' ')[5] || 1 })).filter(m => otb || m.mover === me);
   const bad = mine.filter(m => ['mistake', 'blunder', 'miss'].includes(m.cls));
   const worst = [...bad].sort((a, b) => b.drop - a.drop)[0];
   const text = [];

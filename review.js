@@ -12,6 +12,7 @@ import * as UI from './ui.js';
 const REV = new Map();
 let V = null;   // walkthrough state
 const KEYS = ['brilliant', 'great', 'mistake', 'miss', 'blunder'];
+const moveNo = m => +m.fen.split(' ')[5] || 1;
 
 function resultFor(rec) {
   if (rec.otb) return ['otb', rec.result === '1/2-1/2' ? '½' : rec.result === '*' ? '?' : rec.result];
@@ -109,7 +110,7 @@ function viewSummary() {
       ${graphSvg()}
       <table class="counts"><tr><td>You</td><td></td><td>${esc(rec.opp)}</td></tr>
         ${Object.keys(C.CLASSES).map(k => `<tr><td>${me.n[k]}</td><td>${clsIcon(k, 20)}<span style="color:${CLS_COLOR[k]}">${C.CLASSES[k].label}</span></td><td>${opp.n[k]}</td></tr>`).join('')}</table>
-      ${moments.length ? `<p class="field">Key moments</p><div class="moments">${moments.map(x => `<button class="moment" data-act="jump" data-id="${x.i + 1}">${clsIcon(x.m.cls, 22)}<b>${Math.floor(x.i / 2) + 1}${x.m.mover === 'w' ? '.' : '…'}${x.m.san}</b><span>${C.CLASSES[x.m.cls].label}</span><em>›</em></button>`).join('')}</div>` : ''}
+      ${moments.length ? `<p class="field">Key moments</p><div class="moments">${moments.map(x => `<button class="moment" data-act="jump" data-id="${x.i + 1}">${clsIcon(x.m.cls, 22)}<b>${moveNo(x.m)}${x.m.mover === 'w' ? '.' : '…'}${x.m.san}</b><span>${C.CLASSES[x.m.cls].label}</span><em>›</em></button>`).join('')}</div>` : ''}
       <div style="height:16px"></div>
       <button class="btn" data-act="walk">Go through the game</button>
     </div>`, null);
@@ -136,7 +137,7 @@ function viewStepper() {
   });
   onLeave(() => { V.lineTok++; try { engine().cancel('review'); } catch (e) { /* ignore */ } });
   $('.board-wrap').insertAdjacentHTML('afterbegin', `<div class="vbar ${rec.me === 'b' ? 'flip' : ''}"><i id="evi"></i><span id="evt"></span></div>`);
-  $('#below').innerHTML = `<div class="moves" id="moves">${rev.moves.map((m, i) => `<button class="mv" data-act="ply" data-id="${i + 1}">${m.mover === 'w' ? `<u>${Math.floor(i / 2) + 1}.</u>` : ''}${m.san}${m.cls !== 'book' && m.cls !== 'good' && m.cls !== 'excellent' ? clsIcon(m.cls, 14) : ''}</button>`).join('')}</div>${coachBox('happy', '', 'rc')}`;
+  $('#below').innerHTML = `<div class="moves" id="moves">${rev.moves.map((m, i) => `<button class="mv" data-act="ply" data-id="${i + 1}">${m.mover === 'w' ? `<u>${moveNo(m)}.</u>` : i === 0 ? `<u>${moveNo(m)}…</u>` : ''}${m.san}${m.cls !== 'book' && m.cls !== 'good' && m.cls !== 'excellent' ? clsIcon(m.cls, 14) : ''}</button>`).join('')}</div>${coachBox('happy', '', 'rc')}`;
   ACT.prev = () => showPly(V.idx - 1);
   ACT.nextply = () => showPly(V.idx + 1);
   ACT.ply = el => showPly(+el.dataset.id);
@@ -185,7 +186,7 @@ function showPly(i, animate = true) {
   }
   V.board.setMarks(marks);
   evalBar(m ? m.played : (rev.moves[0] ? rev.moves[0].best : { cp: 0 }));
-  $('#pright').textContent = i ? `Move ${Math.ceil(i / 2)} of ${Math.ceil(n / 2)}` : 'Start';
+  $('#pright').textContent = i ? `Move ${moveNo(m)} of ${moveNo(rev.moves[n - 1])}` : 'Start';
   document.querySelectorAll('#moves .mv').forEach((el, k) => el.classList.toggle('on', k === i - 1));
   const cur = document.querySelector('#moves .mv.on');
   if (cur) cur.scrollIntoView({ inline: 'center', block: 'nearest', behavior: animate ? 'smooth' : 'auto' });
@@ -208,7 +209,7 @@ function showPly(i, animate = true) {
     const bu = m.bestPv && m.bestPv[0];
     if (bu && bu !== m.uci && m.cls !== 'book' && m.cls !== 'best') btns.push(['bestline', '▶ Best line']);
     if (mine && C.BAD.includes(m.cls)) btns.push(['retry', '↺ Retry', true]);
-    html = `${clsTag(m.cls)}${who} <b>${Math.ceil(i / 2)}${m.mover === 'w' ? '.' : '…'}${m.san}</b> ${text}${i === n && g.isGameOver() && !g.isCheckmate() ? ' <b>Draw.</b>' : ''}${btns.length ? row(...btns) : ''}`;
+    html = `${clsTag(m.cls)}${who} <b>${moveNo(m)}${m.mover === 'w' ? '.' : '…'}${m.san}</b> ${text}${i === n && g.isGameOver() && !g.isCheckmate() ? ' <b>Draw.</b>' : ''}${btns.length ? row(...btns) : ''}`;
     if (KEYS.includes(m.cls) || (mine && m.cls === 'inaccuracy')) speak = true;
   }
   coachSet($('#rc'), mood, html, { speak, say: sayLines });
